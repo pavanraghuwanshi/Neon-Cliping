@@ -31,8 +31,20 @@ MODEL = Path(__file__).resolve().parent / 'models' / 'face_detection_yunet_2023m
 
 
 def _duration(path):
-    r = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', str(path)], capture_output=True, text=True, timeout=30)
-    return float(r.stdout.strip() or 0)
+    try:
+        import av
+        with av.open(str(path)) as c:
+            if c.duration: return float(c.duration) / 1000000.0
+    except Exception:pass
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(path))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        cnt = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        cap.release()
+        return float(cnt / fps) if fps else 0.0
+    except Exception:pass
+    return 0.0
 
 
 def sample_frames(path, n=FRAMES):

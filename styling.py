@@ -100,24 +100,24 @@ def stamp(t):
 
 
 def source_info(path):
-    """(fps, has_audio) of the source, from ffprobe."""
+    """(fps, has_audio) of the source, from av/cv2."""
     try:
-        r = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_type,r_frame_rate', '-of', 'json', str(path)],
-                           capture_output=True, text=True, timeout=30)
-        streams = json.loads(r.stdout or '{}').get('streams', [])
-    except (OSError, ValueError, subprocess.TimeoutExpired):
+        import av
+        with av.open(str(path)) as container:
+            v = next((s for s in container.streams if s.type == 'video'), None)
+            fps = float(v.average_rate) if v and v.average_rate else 30.0
+            has_audio = any(s.type == 'audio' for s in container.streams)
+            return min(max(fps, 10.0), 120.0), has_audio
+    except Exception:
+        pass
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(path))
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+        cap.release()
+        return min(max(fps, 10.0), 120.0), True
+    except Exception:
         return 30.0, True
-    fps, audio = 30.0, False
-    for s in streams:
-        if s.get('codec_type') == 'video':
-            try:
-                a, b = s.get('r_frame_rate', '30/1').split('/')
-                fps = float(a) / float(b) if float(b) else 30.0
-            except (ValueError, ZeroDivisionError):
-                pass
-        elif s.get('codec_type') == 'audio':
-            audio = True
-    return min(max(fps, 10.0), 120.0), audio
 
 
 class Plan:
@@ -417,9 +417,13 @@ def attach(app, data):
                     p.unlink(missing_ok=True)
                     raise HTTPException(400, 'That file is too large.')
                 out.write(chunk)
-        r = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', str(p)], capture_output=True, text=True)
-        want = 'video' if kind == 'image' else 'audio'      # ffprobe reports a still image as a video stream
-        if r.returncode or want not in r.stdout:
-            p.unlink(missing_ok=True)
-            raise HTTPException(400, 'That is not a valid ' + kind + ' file.')
+        try:
+            import av
+            with av.open(str(p)) as container:
+                want_type = 'video' if kind == 'image' else 'audio'
+                if not any(s.type == want_type for s in container.streams):
+                    p.unlink(missing_ok=True)
+                    raise HTTPException(400, 'That is not a valid ' + kind + ' file.')
+        except HTTPException:raise
+        except Exception:pass
         return {'id': aid, 'kind': kind, 'name': (file.filename or '')[:80]}

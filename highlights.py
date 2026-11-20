@@ -67,8 +67,12 @@ def _audio(source):
     if n == 0: return np.zeros(0), np.zeros(0)
     x = x[:n * 8000].reshape(n, 8000)
     rms = np.sqrt((x ** 2).mean(1))
-    spec = np.abs(np.fft.rfft(x * np.hanning(8000), axis=1)) ** 2          # 1 Hz bins
-    hf = spec[:, 2000:4000].sum(1) / (spec.sum(1) + 1e-9)
+    try:
+        spec = np.abs(np.fft.rfft(x * np.hanning(8000), axis=1)) ** 2          # 1 Hz bins
+        hf = spec[:, 2000:4000].sum(1) / (spec.sum(1) + 1e-9)
+    except Exception:
+        diff = np.diff(x, axis=1)
+        hf = np.clip(np.sqrt((diff ** 2).mean(1)) / (rms + 1e-9) / 2.0, 0, 1)
     return rms, hf
 
 def _z(x, n, win=120):

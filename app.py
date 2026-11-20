@@ -3,6 +3,9 @@ import json, subprocess, uuid, threading, shutil
 import sys
 import time
 import os
+ROOT=Path(__file__).resolve().parent
+FFMPEG_BIN = str(ROOT / 'bin')
+os.environ['PATH'] = FFMPEG_BIN + os.pathsep + os.environ.get('PATH', '')
 import yt_dlp
 from standalone import attach
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -16,14 +19,21 @@ import brands
 import hooks
 import curation
 import facecam_detect
-ROOT=Path(__file__).resolve().parent
 DATA=Path(os.environ.get('NEONCLIPPING_DATA_DIR',str(ROOT/'data'))).resolve();DATA.mkdir(parents=True,exist_ok=True)
 app=FastAPI()
 state={}
 def probe(p):
- r=subprocess.run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(p)],capture_output=True,text=True,check=True)
- j=json.loads(r.stdout);v=next(x for x in j['streams'] if x['codec_type']=='video')
- return {'w':v['width'],'h':v['height'],'duration':float(j['format']['duration'])}
+ try:
+  import av
+  with av.open(str(p)) as container:
+   v=next(s for s in container.streams if s.type=='video')
+   dur=float(container.duration)/1000000.0 if container.duration else 0.0
+   return {'w':v.width,'h':v.height,'duration':dur}
+ except Exception:pass
+ import cv2
+ cap=cv2.VideoCapture(str(p))
+ w=int(cap.get(cv2.CAP_PROP_FRAME_WIDTH));h=int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT));fps=cap.get(cv2.CAP_PROP_FPS) or 30.0;cnt=cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0;cap.release()
+ return {'w':w,'h':h,'duration':(cnt/fps) if fps else 0.0}
 @app.get('/')
 def home():return HTMLResponse((ROOT/'index.html').read_text(encoding='utf-8'))
 attach(app,DATA,state,probe)
@@ -162,9 +172,17 @@ def export(b:dict):
 PAD=4.0         # seconds fetched before a section: yt-dlp cuts on a keyframe, export trims exactly
 FAST_OVER=600   # seconds: longer videos go audio-first, short ones are downloaded whole
 def _yt(opts):
- return yt_dlp.YoutubeDL({'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':20,'retries':3,'fragment_retries':3,'concurrent_fragment_downloads':6,**opts})
+ return yt_dlp.YoutubeDL({'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':20,'retries':3,'fragment_retries':3,'concurrent_fragment_downloads':6,'ffmpeg_location':FFMPEG_BIN,**opts})
 def _dur(p):
- r=subprocess.run(['ffprobe','-v','error','-show_entries','format=duration','-of','csv=p=0',str(p)],capture_output=True,text=True,check=True);return float(r.stdout.strip())
+ try:
+  import av
+  with av.open(str(p)) as container:
+   if container.duration:return float(container.duration)/1000000.0
+ except Exception:pass
+ import cv2
+ cap=cv2.VideoCapture(str(p))
+ fps=cap.get(cv2.CAP_PROP_FPS) or 30.0;cnt=cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0;cap.release()
+ return float(cnt/fps) if fps else 0.0
 
 def _pcm(path,start=None,length=None):
  import numpy as np
@@ -177,9 +195,11 @@ def section_start(audio_file,section_file,expected):
  if len(needle)<8000*5 or float(np.abs(needle).mean())<20:return expected
  a0=max(0,expected-20);hay=_pcm(audio_file,a0,20+20+len(needle)/8000+2)
  if len(hay)<len(needle):return expected
- size=1<<(len(hay)+len(needle)).bit_length()
- corr=np.fft.irfft(np.fft.rfft(hay,size)*np.conj(np.fft.rfft(needle,size)),size)[:len(hay)-len(needle)+1]
- return a0+int(np.argmax(corr))/8000
+ try:
+  size=1<<(len(hay)+len(needle)).bit_length()
+  corr=np.fft.irfft(np.fft.rfft(hay,size)*np.conj(np.fft.rfft(needle,size)),size)[:len(hay)-len(needle)+1]
+  return a0+int(np.argmax(corr))/8000
+ except Exception:return expected
 
 def axes(f):
  """Four readable 0-100 axes from the scoring features (None = not measured for this clip)."""
@@ -305,8 +325,10 @@ def make(b:dict):
    sections=None
    if fast:
     def hook(d):
-     t=d.get('total_bytes') or d.get('total_bytes_estimate')
-     if t and d.get('status')=='downloading':save(job,{'stage':f"Downloading audio {d['downloaded_bytes']/1048576:.0f}/{t/1048576:.0f} MB",'progress':.02+.1*d['downloaded_bytes']/t})
+     try:
+      t=d.get('total_bytes') or d.get('total_bytes_estimate')
+      if t and d.get('status')=='downloading':save(job,{'stage':f"Downloading audio {d['downloaded_bytes']/1048576:.0f}/{t/1048576:.0f} MB",'progress':.02+.1*d['downloaded_bytes']/t})
+     except Exception:pass
     with _yt({'format':'ba[ext=m4a]/ba/worst','outtmpl':str(DATA/(job+'.audio.%(ext)s')),'progress_hooks':[hook]}) as y:y.download([url])
     p=next(f for f in DATA.glob(job+'.audio.*') if f.suffix not in ('.part','.ytdl'));duration=_dur(p);sid=job
     save(job,{'meta':{'duration':duration},'stage':'Finding moments in audio','progress':.12})

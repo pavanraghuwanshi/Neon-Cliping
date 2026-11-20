@@ -6,7 +6,12 @@ import threading
 import shutil
 import time
 import subprocess
+import os
 import yt_dlp
+ROOT = Path(__file__).resolve().parent
+FFMPEG_BIN = str(ROOT / 'bin')
+if os.path.exists(FFMPEG_BIN) and FFMPEG_BIN not in os.environ.get('PATH', ''):
+    os.environ['PATH'] = FFMPEG_BIN + os.pathsep + os.environ.get('PATH', '')
 from fastapi import HTTPException
 from highlights import rank
 import smart
@@ -23,7 +28,23 @@ def attach(app,DATA,state,probe):
         with lock:
             record={**state.get(job,{}),**record}
             state[job]=record
-            temp=DATA/(job+'.state.tmp');temp.write_text(json.dumps(record),encoding='utf-8');temp.replace(DATA/(job+'.state.json'))
+            target=DATA/(job+'.state.json')
+            temp=DATA/(f'{job}.state.{uuid.uuid4().hex[:6]}.tmp')
+            try:
+                temp.write_text(json.dumps(record,ensure_ascii=False),encoding='utf-8')
+                for _ in range(10):
+                    try:
+                        temp.replace(target)
+                        return
+                    except (PermissionError,OSError):
+                        time.sleep(0.05)
+                target.write_text(json.dumps(record,ensure_ascii=False),encoding='utf-8')
+            except Exception:
+                pass
+            finally:
+                if temp.exists():
+                    try:temp.unlink(missing_ok=True)
+                    except Exception:pass
     # Completed work survives a restart; active work reports interruption.
     for f in DATA.glob('*.state.json'):
         try:
@@ -55,7 +76,7 @@ def attach(app,DATA,state,probe):
             elif event.get('status')=='finished':state[job].update(message='Merging source video',stage='Merging source video')
         options={'noplaylist':True,'format':'best[height<=720][ext=mp4]/bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]',
                  'outtmpl':str(directory/'source.%(ext)s'),'merge_output_format':'mp4','socket_timeout':15,'retries':2,'fragment_retries':2,
-                 'extractor_retries':1,'progress_hooks':[progress],'quiet':True,'no_warnings':True}
+                 'extractor_retries':1,'progress_hooks':[progress],'quiet':True,'no_warnings':True,'ffmpeg_location':FFMPEG_BIN}
         with yt_dlp.YoutubeDL(options) as downloader:downloader.download([url])
         src=next((p for p in directory.iterdir() if p.suffix in ('.mp4','.mkv','.webm')),None)
         if src is None:raise RuntimeError('Download produced no playable file. Upload the original MP4 instead.')
