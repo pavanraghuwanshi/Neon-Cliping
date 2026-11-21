@@ -29,9 +29,11 @@ def focus_match(brief,text):
 def focus_rank(score,relevance):
     return score if relevance is None else .65*score+.35*max(0,min(1,relevance))
 def filler(text):
-    phrases=('like and subscribe','hit the bell','follow me','we will start soon','give me a minute','welcome back everyone','thanks for watching')
+    phrases=('like and subscribe','hit the bell','follow me','we will start soon','give me a minute',
+             'welcome back everyone','thanks for watching','see you next','bye guys','swagat hai',
+             'aaj ki is video','stream starting','subscribe to','don\'t forget to subscribe')
     lower=text.casefold()
-    return sum(phrase in lower for phrase in phrases)>=2
+    return any(phrase in lower for phrase in phrases)
 
 def extract_hook(text):
     """Use a real payoff sentence when a small model cannot support its proposed hook."""
@@ -66,10 +68,12 @@ def profile_weights(weights,profile='balanced'):
 
 def transcript_candidates(words,duration,length,count,focus=''):
     if not words or count<1:return []
-    count=max(1,min(30,count));length=min(length,duration);out=[]
+    count=max(1,min(60,count));length=min(length,duration);out=[]
     markers=re.compile(r'\b(but|actually|instead|why|how|because|wait|wrong|mistake|never|finally|imagine|secret|lekin|kyun|kaise|galti|pata|achanak)\b',re.I)
+    margin=min(90.0,duration*0.03) if duration>180 else 0
+    span=duration-2*margin
     for bucket in range(count):
-        a=duration*bucket/count;b=duration*(bucket+1)/count
+        a=margin+span*bucket/count;b=margin+span*(bucket+1)/count
         positions=[i for i,word in enumerate(words) if a<=word['start']<b]
         if not positions:continue
         def merit(index):

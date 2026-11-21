@@ -99,8 +99,10 @@ def rank(source, duration, count=4, length=30, report=lambda seconds: None, moti
         sig = .75 * sig + .25 * e
     width = min(n, 7); smooth = np.convolve(sig, np.ones(width) / width, 'same')
     length = min(float(length), duration); clips = []
+    margin = min(90.0, duration * 0.03) if duration > 180 else 0
     for center in np.argsort(smooth)[::-1]:
         start = max(0, min(float(center) - length * .4, duration - length)); end = min(duration, start + length)
+        if duration > 180 and (start < margin or end > duration - margin): continue
         if any(min(end, c['end']) - max(start, c['start']) > 0 for c in clips): continue
         parts = {'motion': motion, 'audio jump': loud, 'shouting': shout, 'cuts': cut}
         lo, hi = int(start), max(int(start) + 1, int(end))

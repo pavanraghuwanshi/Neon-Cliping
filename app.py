@@ -227,7 +227,7 @@ def make(b:dict):
  audio + transcript, then fetch just those video sections. Clips stream into state[job]['clips']."""
  url,src0=app.neon['new_source'](b);save=app.neon['save']
  try:
-  count=max(1,min(12,int(b.get('count',4))));raw_max=float(b.get('max_len',b.get('length',60)));raw_min=float(b.get('min_len',30))
+  count=max(1,min(50,int(b.get('count',4))));raw_max=float(b.get('max_len',b.get('length',60)));raw_min=float(b.get('min_len',30))
   if not (math.isfinite(raw_max) and math.isfinite(raw_min)):raise ValueError()
   max_len=max(10,min(180,raw_max));min_len=max(5,min(max_len,raw_min))
  except (TypeError,ValueError,OverflowError):raise HTTPException(400,'Choose a valid clip count and length range.')
@@ -236,8 +236,8 @@ def make(b:dict):
  if moments is not None:
   if not isinstance(moments,list) or not 1<=len(moments)<=40 or not all(isinstance(m,dict) for m in moments):raise HTTPException(400,'Moments must be a list of 1 to 40 items with start and end.')
   count=min(24,len(moments))
- mode='deep' if b.get('mode')=='deep' else 'fast'
- profile=b.get('moment_profile','balanced')
+ mode='fast' if b.get('mode')=='fast' else 'deep'
+ profile=b.get('moment_profile','action')
  if profile not in curation.PROFILES:raise HTTPException(400,'Choose Balanced, Action or Dialogue moments.')
  try:focus_brief,include_phrases,exclude_phrases=curation.focus_settings(b)
  except ValueError as error:raise HTTPException(400,str(error))
@@ -257,7 +257,7 @@ def make(b:dict):
     if info.get('is_live') or info.get('live_status') in ('is_live','is_upcoming'):
      raise RuntimeError('This stream is live right now. Use the Live clipping panel to clip it while it is on, or wait until it ends and use Make clips on the finished video.')
     video_lang=str(info.get('language') or '')
-    fast=float(info.get('duration') or 0)>FAST_OVER and not info.get('is_live') and mode=='fast';title=info.get('title') or ''
+    fast=float(info.get('duration') or 0)>FAST_OVER and not info.get('is_live');title=info.get('title') or ''
     try:
      from captions_yt import from_info
      yt_words=from_info(info);save(job,{'transcript_source':'YouTube captions' if yt_words else 'speech model'})
@@ -332,7 +332,7 @@ def make(b:dict):
     with _yt({'format':'ba[ext=m4a]/ba/worst','outtmpl':str(DATA/(job+'.audio.%(ext)s')),'progress_hooks':[hook]}) as y:y.download([url])
     p=next(f for f in DATA.glob(job+'.audio.*') if f.suffix not in ('.part','.ytdl'));duration=_dur(p);sid=job
     save(job,{'meta':{'duration':duration},'stage':'Finding moments in audio','progress':.12})
-    found,engine=ai_found(moments,yt_words,duration) if moments else find(p,duration,count,max_len,lambda f,m:save(job,{'stage':m,'progress':.12+.4*f}),language,DATA,min_len,False,yt_words,False,W,False,profile,focus_brief,include_phrases,exclude_phrases)
+    found,engine=ai_found(moments,yt_words,duration) if moments else find(p,duration,count,max_len,lambda f,m:save(job,{'stage':m,'progress':.12+.4*f}),language,DATA,min_len,False,yt_words,mode=='deep',W,False,profile,focus_brief,include_phrases,exclude_phrases)
     found=choose(found,lambda c:lowres_section(url,c))
     if not found:
      save(job,{'status':'done','stage':'No moments matched the transcript filters. Broaden the focus or required phrases.','progress':1,'clips':[],'elapsed_seconds':round(time.monotonic()-began,2)});return

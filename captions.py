@@ -100,7 +100,13 @@ def transcribe(source,start,end,data,report=lambda message:None,language=None,mo
             report('Transcribing selected clip locally')
             # 'hinglish' = Hindi speech written in Roman letters (a Roman-script prompt steers Whisper to it)
             prompt=DEVA_PROMPT if language in ('hi','hinglish') else None
-            segments,info=MODEL.transcribe(str(audio),beam_size=5,language=('hi' if language=='hinglish' else language) or None,initial_prompt=prompt,word_timestamps=True,vad_filter=True,condition_on_previous_text=False)
+            use_vad = False
+            try:
+                import onnxruntime
+                use_vad = True
+            except Exception:
+                use_vad = False
+            segments,info=MODEL.transcribe(str(audio),beam_size=5,language=('hi' if language=='hinglish' else language) or None,initial_prompt=prompt,word_timestamps=True,vad_filter=use_vad,condition_on_previous_text=False)
             words=[]
             for segment in segments:
                 for w in segment.words or []:

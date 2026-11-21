@@ -127,7 +127,7 @@ def attach(app,DATA,state,probe):
     @app.post('/analyze')
     def analyze(body:dict):
         url,src=new_source(body);b_lang=body.get('language') or None
-        try:count=max(1,min(12,int(body.get('count',4))));length=max(5,min(120,float(body.get('length',30))))
+        try:count=max(1,min(50,int(body.get('count',4))));length=max(5,min(120,float(body.get('length',30))))
         except (TypeError,ValueError):raise HTTPException(400,'Choose a valid clip count and length.')
         if not (5<=length<=120):raise HTTPException(400,'Choose a valid clip length.')
         job=uuid.uuid4().hex;save(job,{'id':job,'status':'running','stage':'Starting local analysis','progress':0,'source':{'url':url}})
