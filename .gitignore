@@ -6,6 +6,7 @@
 !requirements.txt
 !run.ps1
 !run.sh
+!run.bat
 !*.py
 !index.html
 !app.js
